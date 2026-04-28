@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual Environment
+lstm_env/
+venv/
+env/
+
+# Model files (large binaries)
+lstm_model.h5
+tokenizer.pkl
+training_history.png
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

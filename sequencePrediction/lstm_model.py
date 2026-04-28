@@ -88,16 +88,17 @@ class LSTMSequencePredictor:
         logger.info("Preparing data for LSTM training...")
         
         # Download NLTK data if needed
-        try:
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
-            nltk.download('punkt')
+        for resource in ['punkt', 'punkt_tab']:
+            try:
+                nltk.data.find(f'tokenizers/{resource}')
+            except LookupError:
+                nltk.download(resource)
         
         # Tokenize text into sentences
         sentences = nltk.sent_tokenize(text_data.lower())
         
-        # Create tokenizer — cap at top 5000 words
-        self.tokenizer = Tokenizer(num_words=self.max_vocab, oov_token="<OOV>")
+        # Create tokenizer — cap at top 5000 words, no OOV token
+        self.tokenizer = Tokenizer(num_words=self.max_vocab)
         self.tokenizer.fit_on_texts(sentences)
         self.vocab_size = min(len(self.tokenizer.word_index) + 1, self.max_vocab)
         
@@ -235,22 +236,23 @@ class LSTMSequencePredictor:
         # Predict
         predictions = self.model.predict(sequence, verbose=0)[0]
         
-        # Get top k predictions
-        top_indices = np.argsort(predictions)[-top_k:][::-1]
-        
-        # Convert indices to words
+        # Convert indices to words, skip index 0
         word_index_reverse = {v: k for k, v in self.tokenizer.word_index.items()}
-        
+
+        # Get top k predictions, skipping unknown/padding indices
+        sorted_indices = np.argsort(predictions)[::-1]
         results = []
-        for idx in top_indices:
+        for idx in sorted_indices:
+            if idx == 0:
+                continue
             if idx in word_index_reverse:
-                word = word_index_reverse[idx]
-                probability = float(predictions[idx])
                 results.append({
-                    'word': word,
-                    'probability': probability
+                    'word': word_index_reverse[idx],
+                    'probability': float(predictions[idx])
                 })
-        
+            if len(results) == top_k:
+                break
+
         return results
     
     def save_model(self, model_path='lstm_model.h5', tokenizer_path='tokenizer.pkl'):
@@ -278,16 +280,29 @@ class LSTMSequencePredictor:
 
 def create_sample_dataset():
     """
-    Downloads WikiText-2 (real ~2M word corpus) via HuggingFace datasets.
-    Falls back to a built-in corpus if unavailable.
+    Downloads WikiText-2 filtered to ML/AI articles, falls back to a
+    rich built-in ML corpus so predictions are domain-relevant.
     """
     try:
         from datasets import load_dataset
         logger.info("Downloading WikiText-2 dataset...")
         ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train", trust_remote_code=True)
-        # Join all non-empty lines, cap at 300k chars so training stays under 5 mins
-        text = " ".join(row["text"] for row in ds if row["text"].strip())[:300_000]
-        logger.info(f"WikiText-2 loaded: {len(text):,} characters")
+        # Keep only paragraphs that mention ML/AI keywords
+        keywords = {
+            "learning", "neural", "network", "model", "training", "data",
+            "algorithm", "classification", "regression", "prediction",
+            "gradient", "loss", "layer", "weight", "feature", "input",
+            "output", "function", "matrix", "vector", "probability"
+        }
+        lines = []
+        for row in ds:
+            t = row["text"].strip()
+            if t and any(k in t.lower() for k in keywords):
+                lines.append(t)
+        text = " ".join(lines)[:300_000]
+        if len(text) < 10_000:
+            raise ValueError("Too little relevant text found")
+        logger.info(f"Filtered WikiText-2 loaded: {len(text):,} characters")
         return text
     except Exception as e:
         logger.warning(f"Could not load WikiText-2 ({e}), using built-in corpus.")
@@ -295,28 +310,39 @@ def create_sample_dataset():
 
 
 def _builtin_corpus():
-    return (
-        "Machine learning is a subset of artificial intelligence that focuses on building systems "
-        "that learn from data. Deep learning uses neural networks with many layers to model complex patterns. "
-        "Natural language processing enables computers to understand and generate human language. "
-        "LSTM networks are recurrent neural networks capable of learning long-term dependencies in sequences. "
-        "The forget gate in an LSTM decides what information to discard from the cell state. "
-        "The input gate determines what new information will be stored in the cell state. "
-        "The output gate controls what parts of the cell state will be output as the hidden state. "
-        "Sequence prediction is a core task in language modelling and time series forecasting. "
-        "Gradient descent minimises the loss function by iteratively updating model weights. "
-        "Backpropagation computes gradients of the loss with respect to every parameter in the network. "
-        "Overfitting occurs when a model memorises training data and fails to generalise to new examples. "
-        "Dropout regularisation randomly deactivates neurons during training to prevent overfitting. "
-        "Attention mechanisms allow models to focus on relevant parts of the input sequence. "
-        "Transformers replaced recurrent architectures for most natural language processing benchmarks. "
-        "Word embeddings map words to dense vectors that capture semantic relationships. "
-        "The softmax function converts raw scores into a probability distribution over the vocabulary. "
-        "Cross-entropy loss measures the difference between predicted and true word distributions. "
-        "Batch normalisation stabilises training by normalising activations within each mini-batch. "
-        "Transfer learning reuses a pretrained model as the starting point for a new task. "
-        "Data augmentation artificially increases training set size to improve model robustness. "
-    ) * 40  # repeat to give ~8k words of varied text
+    base = (
+        "machine learning is a method of data analysis that automates analytical model building. "
+        "deep learning is part of a broader family of machine learning methods based on artificial neural networks. "
+        "a neural network is a series of algorithms that endeavors to recognize underlying relationships in a set of data. "
+        "the lstm network is a type of recurrent neural network used in deep learning. "
+        "the forget gate of the lstm network decides what information to remove from the cell state. "
+        "the input gate of the lstm network decides what new information to store in the cell state. "
+        "the output gate of the lstm network decides what information to output from the cell state. "
+        "gradient descent is an optimization algorithm used to minimize the loss function during training. "
+        "backpropagation is the algorithm used to calculate gradients in a neural network. "
+        "overfitting occurs when a neural network model learns the training data too well. "
+        "dropout is a regularization technique that randomly drops neurons during training. "
+        "the embedding layer converts word indices into dense vector representations. "
+        "the softmax function converts the output of the neural network into a probability distribution. "
+        "the loss function measures how well the neural network model fits the training data. "
+        "the training data is used to train the neural network model parameters. "
+        "the validation data is used to evaluate the neural network model during training. "
+        "the test data is used to evaluate the final neural network model performance. "
+        "natural language processing is a subfield of artificial intelligence and linguistics. "
+        "sequence prediction is the task of predicting the next element in a sequence. "
+        "word embeddings are dense vector representations of words in a continuous vector space. "
+        "the attention mechanism allows the model to focus on relevant parts of the input sequence. "
+        "transfer learning is a technique where a model trained on one task is reused on another task. "
+        "convolutional neural networks are used for image recognition and classification tasks. "
+        "recurrent neural networks are designed to work with sequential data and time series. "
+        "the adam optimizer is an adaptive learning rate optimization algorithm for training neural networks. "
+        "batch normalization is a technique to normalize the inputs of each layer in the neural network. "
+        "the relu activation function is commonly used in hidden layers of neural networks. "
+        "the sigmoid activation function outputs values between zero and one for binary classification. "
+        "hyperparameter tuning is the process of finding the optimal settings for a machine learning model. "
+        "cross validation is a technique to assess how well a model generalizes to independent data. "
+    )
+    return base * 60  # ~60k words, enough for meaningful training
 
 if __name__ == "__main__":
     # Example usage

@@ -10,9 +10,9 @@ lstm_env/
 venv/
 env/
 
-# Model files (large binaries)
-lstm_model.h5
-tokenizer.pkl
+# Model files — commit these after local training
+# lstm_model.h5
+# tokenizer.pkl
 training_history.png
 
 # Environment variables
